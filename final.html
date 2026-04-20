@@ -1,0 +1,1083 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>Metabolic Topology | 代谢拓扑</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --c-grain: #FFD166; --c-meat: #EF476F; --c-veg: #06D6A0;
+            --c-oil: #F78C6B; --c-salt: #118AB2;
+            --bg-gradient: radial-gradient(circle at 100% 0%, #f3f7f9 0%, #e5ecf1 50%, #d5e0e8 100%);
+            --glass-bg: rgba(255, 255, 255, 0.55);
+            --glass-border: rgba(255, 255, 255, 0.8);
+            --text-main: #1d1d1f; --text-muted: #86868b;
+            --shadow: 0 20px 40px rgba(0, 0, 0, 0.04);
+            /* 光束透明度控制 */
+            --beam-opacity: 0.6;
+        }
+
+        body {
+            margin: 0; background: var(--bg-gradient); color: var(--text-main);
+            font-family: 'Inter', -apple-system, sans-serif; overflow: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+/* 专用毛玻璃面板样式，确保与主界面质感 100% 同步 */
+
+        /* 顶部导航开关 */
+        #top-nav {
+            position: absolute; top: 30px; right: 40px; z-index: 50;
+            display: flex; gap: 10px; background: var(--glass-bg); backdrop-filter: blur(24px);
+            padding: 6px; border-radius: 30px; border: 1px solid var(--glass-border); box-shadow: var(--shadow);
+        }
+        .nav-btn {
+            background: transparent; border: none; padding: 10px 20px; border-radius: 20px;
+            font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 0.9rem;
+            color: var(--text-muted); cursor: pointer; transition: 0.3s;
+        }
+        .nav-btn.active { background: #1d1d1f; color: #fff; }
+
+        /* 视图 1：主拓扑图容器 */
+        #view-main { transition: opacity 0.5s; width: 100%; height: 100%; position: absolute; }
+        
+        /* 视图 2：日历总结容器 */
+        #view-summary {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 40;
+            background: var(--bg-gradient); padding: 100px 60px 60px 60px; box-sizing: border-box;
+            overflow-y: auto; opacity: 0; pointer-events: none; transition: opacity 0.5s;
+            display: flex; flex-direction: column; gap: 40px;
+        }
+        #view-summary.active { opacity: 1; pointer-events: auto; }
+
+        /* 公共 UI 样式 */
+        #header { position: absolute; top: 30px; left: 40px; z-index: 20; pointer-events: none; }
+        #header h1 { font-family: 'Space Grotesk', sans-serif; font-size: 2.5rem; font-weight: 700; margin: 0 0 5px 0; letter-spacing: -1px; }
+        #header p { margin: 0; font-size: 0.9rem; color: var(--text-muted); font-weight: 300; letter-spacing: 1px; text-transform: uppercase; }
+
+        #dashboard {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;
+            display: flex; justify-content: space-between; padding: 120px 40px 40px 40px; box-sizing: border-box;
+        }
+        
+        .panel {
+            pointer-events: auto; background: var(--glass-bg); backdrop-filter: blur(24px); border: 1px solid var(--glass-border);
+            border-radius: 24px; padding: 32px; width: 360px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 20px; z-index: 10;
+        }
+
+        h2 { font-family: 'Space Grotesk', sans-serif; margin: 0; font-size: 1.2rem; font-weight: 600; display: flex; justify-content: space-between; align-items: baseline; }
+        h2 span { font-size: 0.8rem; font-weight: 400; color: var(--text-muted); font-family: 'Inter', sans-serif;}
+
+        .btn-group { display: flex; flex-wrap: wrap; gap: 12px; }
+        button.action-btn {
+            flex: 1 1 45%; background: rgba(255,255,255,0.7); border: 1px solid rgba(0,0,0,0.05); color: var(--text-main); 
+            padding: 12px; border-radius: 12px; cursor: pointer; font-family: 'Inter', sans-serif; font-size: 0.85rem; font-weight: 500;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+        }
+        button.action-btn span { font-family: 'Space Grotesk', sans-serif; font-size: 0.75rem; color: var(--text-muted); }
+        button.action-btn:hover { transform: translateY(-3px); background: #fff; box-shadow: 0 10px 20px rgba(0,0,0,0.05); border-color: transparent;}
+        
+        #btn-grain:hover { border-bottom: 3px solid var(--c-grain); } #btn-meat:hover { border-bottom: 3px solid var(--c-meat); }
+        #btn-veg:hover { border-bottom: 3px solid var(--c-veg); } #btn-oil:hover { border-bottom: 3px solid var(--c-oil); } #btn-salt:hover { border-bottom: 3px solid var(--c-salt); }
+
+        #time-controller {
+            position: absolute; top: 40px; left: 50%; transform: translateX(-50%); background: var(--glass-bg); backdrop-filter: blur(24px);
+            border-radius: 40px; padding: 8px 8px 8px 24px; display: flex; align-items: center; gap: 24px; box-shadow: var(--shadow); pointer-events: auto; border: 1px solid var(--glass-border); z-index: 20;
+        }
+        #day-label { font-family: 'Space Grotesk', sans-serif; font-size: 1.2rem; font-weight: 700; color: #1d1d1f; }
+        #btn-next-day { background: #1d1d1f; color: white; border: none; padding: 12px 24px; border-radius: 30px; font-weight: 500; cursor: pointer; transition: 0.3s; }
+        #btn-next-day:hover { background: #333; transform: scale(1.02); }
+
+        #log-panel {
+            position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); width: 640px; background: var(--glass-bg); backdrop-filter: blur(24px);
+            border-radius: 24px; padding: 24px 32px; box-shadow: var(--shadow); pointer-events: auto; border: 1px solid var(--glass-border); display: flex; flex-direction: column; gap: 12px; z-index: 20;
+        }
+        .log-row { display: flex; justify-content: space-between; font-size: 0.9rem; align-items: baseline;}
+        .log-label { font-weight: 600; color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px;}
+        .highlight-text { color: var(--c-meat); font-weight: 600; }
+        
+        .value-display { font-family: 'Space Grotesk', sans-serif; font-size: 2rem; font-weight: 700; color: #1d1d1f; line-height: 1;}
+        #viz { position: absolute; top: 0; left: 0; z-index: 1; }
+
+        /* 日历总结页专属样式 */
+        .summary-header { font-family: 'Space Grotesk', sans-serif; font-size: 2.5rem; font-weight: 700; margin-bottom: 10px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 20px; margin-bottom: 20px; }
+        .stat-card { background: var(--glass-bg); backdrop-filter: blur(24px); border: 1px solid var(--glass-border); border-radius: 20px; padding: 20px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 10px;}
+        .stat-card .val { font-family: 'Space Grotesk', sans-serif; font-size: 2rem; font-weight: 700; color: #1d1d1f; line-height: 1;}
+        
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 16px; padding-bottom: 100px; }
+        .day-card { background: rgba(255,255,255,0.6); border: 1px solid var(--glass-border); border-radius: 16px; padding: 16px; min-height: 120px; display: flex; flex-direction: column; gap: 12px; transition: transform 0.3s, box-shadow 0.3s; }
+        .day-card:hover { transform: translateY(-5px); box-shadow: var(--shadow); background: #fff;}
+        .day-card.today { border: 2px solid var(--c-salt); background: #fff;}
+        .day-num { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 1.2rem; border-bottom: 1px solid rgba(0,0,0,0.05); padding-bottom: 8px;}
+        
+        /* 日历内部的微型可视化条 */
+        .mini-diet-bar { width: 100%; height: 8px; border-radius: 4px; display: flex; overflow: hidden; background: #e5ecf1;}
+        .diet-segment { height: 100%; }
+        .mini-workout-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+        .w-tag { font-size: 0.7rem; padding: 4px 8px; border-radius: 8px; font-weight: 600; color: #fff;}
+        
+        /* --- 教程引导蒙版 (Tutorial Overlay) --- */
+        #tutorial-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(243, 247, 249, 0.3); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            z-index: 100; display: none; opacity: 0; transition: opacity 0.5s ease;
+        }
+        #tutorial-overlay.active { display: block; opacity: 1; }
+        
+        .tutorial-card {
+            position: absolute; background: var(--glass-bg); border: 1px solid var(--glass-border);
+            padding: 24px; border-radius: 20px; box-shadow: 0 30px 60px rgba(0,0,0,0.08); 
+            width: 320px; font-family: 'Inter', sans-serif; pointer-events: none;
+        }
+        .tutorial-card h3 { 
+            font-family: 'Space Grotesk', sans-serif; margin: 0 0 12px 0; 
+            font-size: 1.1rem; display: flex; align-items: center; gap: 8px;
+        }
+        .tutorial-card p { margin: 0; font-size: 0.85rem; color: var(--text-main); line-height: 1.6; }
+        
+        #card-input { top: 150px; left: 420px; } 
+        #card-output { top: 150px; right: 420px; } 
+        #card-core { top: 60%; left: 50%; transform: translate(-50%, 0); text-align: center; width: 400px; } 
+        
+        .tutorial-action-btn {
+            position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
+            background: #1d1d1f; color: #fff; padding: 14px 40px; border-radius: 30px;
+            font-family: 'Space Grotesk', sans-serif; font-size: 1rem; font-weight: 600; 
+            cursor: pointer; border: none; transition: transform 0.3s, box-shadow 0.3s; pointer-events: auto;
+        }
+        .tutorial-action-btn:hover { transform: translateX(-50%) scale(1.05); box-shadow: 0 10px 20px rgba(0,0,0,0.2); }
+        
+        /* 视图 3：成长山脉视图容器 (更新为兼容新视差样式) */
+        #view-growth {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 35;
+            padding: 100px 60px; box-sizing: border-box;
+            opacity: 0; pointer-events: none; transition: opacity 0.5s;
+        }
+        #view-growth.active { opacity: 1; pointer-events: auto; }
+
+        /* 新增视差风景核心样式 */
+        .parallax-layer {
+            transition: transform 0.1s ease-out;
+            will-change: transform;
+        }
+        .light-beams {
+            opacity: var(--beam-opacity);
+            mix-blend-mode: overlay; /* 让光线和背景自然融合 */
+        }
+        .growth-hud-panel {
+            position: absolute;
+            z-index: 100; /* 确保在最上层 */
+            width: 220px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border-radius: 24px;
+            padding: 20px;
+            box-shadow: var(--shadow);
+            pointer-events: none;
+            opacity: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            /* 核心动画：与 SVG 缩放同步 */
+            transition: opacity 0.8s ease, transform 1.5s cubic-bezier(0.65, 0, 0.35, 1);
+        }
+        .growth-hud-label {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 9px;
+            font-weight: 700;
+            color: #45627D;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="top-nav">
+        <button id="nav-main" class="nav-btn active" onclick="switchView('main')">Topology View</button>
+        <button id="nav-summary" class="nav-btn" onclick="switchView('summary')">Monthly Report</button>
+        <button id="nav-growth" class="nav-btn" onclick="switchView('growth')">Growth</button> 
+        <button id="nav-tutorial" class="nav-btn" onclick="toggleTutorial()">Guide</button>
+    </div>
+
+    <div id="header">
+        <h1>Metabolic Topology</h1>
+        <p>Interactive Data Sculpture · System Balance</p>
+    </div>
+
+    <div id="view-main">
+        <div id="time-controller">
+            <div id="day-label">Day 1</div>
+            <button id="btn-next-day">End Day & Generate Report ➔</button>
+        </div>
+
+        <div id="dashboard">
+            <div class="panel" id="food-panel">
+                <h2>Input <span>Nutrients</span></h2>
+                <div style="margin-bottom: 15px;">
+                    <div style="display: flex; align-items: baseline; gap: 8px;">
+                        <div class="log-label">Core Energy (kcal)</div>
+                        <div class="log-label" style="color: var(--c-oil);">/ BMR: 350</div>
+                    </div>
+                    <div class="value-display" id="energy-val">0</div>
+                </div>
+                <div class="btn-group">
+                    <button class="action-btn" id="btn-grain" data-type="grain" data-val="30" data-grams="60" data-color="#FFD166">谷物 Carbohydrate <span>+60g / 30kcal</span></button>
+                    <button class="action-btn" id="btn-meat" data-type="meat" data-val="25" data-grams="30" data-color="#EF476F">肉类 Protein <span>+30g / 25kcal</span></button>
+                    <button class="action-btn" id="btn-veg" data-type="veg" data-val="10" data-grams="80" data-color="#06D6A0">蔬菜 Vitamins <span>+80g / 10kcal</span></button>
+                    <button class="action-btn" id="btn-oil" data-type="oil" data-val="40" data-grams="5" data-color="#F78C6B">油脂 Fat <span>+5g / 40kcal</span></button>
+                    <button class="action-btn" id="btn-salt" data-type="salt" data-val="0" data-grams="1" data-color="#118AB2" style="flex: 1 1 100%;">盐分 Sodium <span>+1g / 0kcal</span></button>
+                </div>
+            </div>
+
+            <div class="panel" id="workout-panel">
+                <h2>Output <span>Burn & Tear</span></h2>
+                <div class="btn-group">
+                    <button class="action-btn btn-train" data-target="chest">胸部 Chest <span>15 mins / High Intensity</span></button>
+                    <button class="action-btn btn-train" data-target="back">背部 Back <span>15 mins / High Intensity</span></button>
+                    <button class="action-btn btn-train" data-target="legs">腿部 Legs <span>15 mins / High Intensity</span></button>
+                    <button class="action-btn btn-train" data-target="shoulders">肩部 Shoulders <span>15 mins / High Intensity</span></button>
+                </div>
+                <div style="margin-top: 10px; border-top: 1px solid rgba(0,0,0,0.05); padding-top: 15px;">
+                    <div class="log-label" style="margin-bottom: 10px;">Fatigue Monitor</div>
+                    <div id="fatigue-monitor" style="font-size: 0.85rem; display: flex; flex-direction: column; gap: 8px; font-family: 'Space Grotesk', sans-serif;"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="log-panel">
+            <div class="log-row" style="border-bottom: 1px solid rgba(0,0,0,0.05); padding-bottom: 12px;">
+                <span class="log-label">Intake Ratio</span>
+                <span id="daily-intake-text" style="font-family: 'Space Grotesk', sans-serif; font-size: 0.85rem; color: var(--text-muted);">Grain: 0 | Meat: 0 | Veg: 0 | Oil: 0 | Salt: 0</span>
+            </div>
+            <div class="log-row" style="padding-top: 5px;">
+                <span class="log-label">System Status</span>
+                <span id="status-text">一切平衡，等待行为输入...</span>
+            </div>
+            <div class="log-row" style="background: rgba(255,255,255,0.5); padding: 12px; border-radius: 8px; margin-top: 10px; flex-direction: column; gap: 8px;">
+                <span class="log-label" style="color: #1d1d1f;">💡 Next Day Strategy (明日策略)</span>
+                <span id="recommendation-text" style="font-size: 0.85rem; line-height: 1.6;">点击「End Day」生成基于今日数据的饮食与训练规划。</span>
+            </div>
+        </div>
+        <div id="tutorial-overlay">
+            <div class="tutorial-card" id="card-input">
+                <h3 style="color: var(--c-veg);">1. 能量摄入 (Input)</h3>
+                <p>点击不同的食物为系统注入能量。系统的 <strong>基础代谢(BMR)为350kcal</strong>。若某项营养摄入不足，次日报告将亮起红色健康预警。</p>
+            </div>
+            <div class="tutorial-card" id="card-output">
+                <h3 style="color: var(--c-meat);">2. 能量输出 (Output)</h3>
+                <p>训练会燃烧多余的能量球，但会造成肌肉充血膨胀。<strong>代偿保护机制：</strong>当协同肌群极度疲劳(≥80%)时，系统将强制锁定危险动作。</p>
+            </div>
+            <div class="tutorial-card" id="card-core">
+                <h3 style="justify-content: center; color: var(--text-main);">The Core & Orbiting Particles (系统核心)</h3>
+                <p><strong>中心饼图 (Core)：</strong>代表你的基础代谢。完美的五等分意味着膳食营养的绝对均衡。<br><br>
+                <strong>游离小球 (Orbiting)：</strong>当你摄入的卡路里超出BMR，多余的能量会具象化为小球，如卫星般环绕核心。如果不通过运动将它们燃烧，它们将在次日继续累积。</p>
+            </div>
+            <button class="tutorial-action-btn" onclick="toggleTutorial()">Got it (开始体验)</button>
+        </div>
+        <svg id="viz"></svg>
+    </div>
+
+    <div id="view-summary">
+        <div>
+            <h2 class="summary-header">Monthly Dashboard</h2>
+            <div class="log-label" style="margin-bottom: 20px;">Cumulative Aggregate Data</div>
+            <div class="stats-grid">
+                <div class="stat-card" style="border-bottom: 4px solid var(--c-oil);">
+                    <div class="log-label">Total Burned (kcal)</div>
+                    <div class="val" id="tot-burn">0</div>
+                </div>
+                <div class="stat-card" style="border-bottom: 4px solid var(--text-main);">
+                    <div class="log-label">Chest Time (mins)</div>
+                    <div class="val" id="tot-chest">0</div>
+                </div>
+                <div class="stat-card" style="border-bottom: 4px solid var(--text-main);">
+                    <div class="log-label">Back Time (mins)</div>
+                    <div class="val" id="tot-back">0</div>
+                </div>
+                <div class="stat-card" style="border-bottom: 4px solid var(--text-main);">
+                    <div class="log-label">Legs Time (mins)</div>
+                    <div class="val" id="tot-legs">0</div>
+                </div>
+                <div class="stat-card" style="border-bottom: 4px solid var(--text-main);">
+                    <div class="log-label">Shoulders Time (mins)</div>
+                    <div class="val" id="tot-shoulders">0</div>
+                </div>
+            </div>
+        </div>
+        <div>
+            <h2 class="summary-header" style="font-size: 1.8rem;">Metabolic Calendar</h2>
+            <div class="calendar-grid" id="calendar-grid">
+                </div>
+        </div>
+    </div>
+    
+    <div id="view-growth"></div>
+
+    <script>
+        // --- 1. 核心状态架构 ---
+        let state = {
+            day: 1, energy: 0, 
+            fatigue: { chest: 0, back: 0, legs: 0, shoulders: 0 },
+            dailyIntake: { grain: 0, meat: 0, veg: 0, oil: 0, salt: 0 }, 
+            dailyWorkout: { chest: 0, back: 0, legs: 0, shoulders: 0 },
+            clickCount: { grain: 0, meat: 0, veg: 0, oil: 0, salt: 0 },  
+            history: [], 
+            monthlyLog: [],
+            totalGoal: 3000, 
+            growthLog: [],
+        };
+
+        function switchView(viewName) {
+            d3.selectAll(".nav-btn").classed("active", false);
+            d3.select(`#nav-${viewName}`).classed("active", true);
+            
+            d3.select("#view-main").style("opacity", 0).style("pointer-events", "none");
+            d3.select("#view-summary").classed("active", false);
+            d3.select("#view-growth").classed("active", false);
+
+            // 【修复 1】：动态提升全局标题的层级，确保它不会被 Growth 画布遮挡
+            d3.select("#header").style("z-index", "60");
+
+            if (viewName === 'main') {
+                d3.select("#view-main").style("opacity", 1).style("pointer-events", "auto");
+            } else if (viewName === 'summary') {
+                d3.select("#view-summary").classed("active", true);
+                renderSummary();
+            } else if (viewName === 'growth') {
+                d3.select("#view-growth").classed("active", true);
+                renderGrowth();
+            }
+        }
+
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        const svg = d3.select("#viz").attr("width", width).attr("height", height);
+
+        const defs = svg.append("defs");
+        const filter = defs.append("filter").attr("id", "drop-shadow").attr("x", "-200%").attr("y", "-200%").attr("width", "500%").attr("height", "500%");
+        filter.append("feDropShadow").attr("dx", "0").attr("dy", "15").attr("stdDeviation", "20").attr("flood-color", "#000000").attr("flood-opacity", "0.08");
+        const g = svg.append("g");
+
+        let nodes = [
+            { id: "core", type: "core", radius: 55, color: "#ffffff" },
+            { id: "chest", type: "muscle", name: "Chest", radius: 35, color: "#e5ecf1" },
+            { id: "back", type: "muscle", name: "Back", radius: 35, color: "#e5ecf1" },
+            { id: "legs", type: "muscle", name: "Legs", radius: 35, color: "#e5ecf1" },
+            { id: "shoulders", type: "muscle", name: "Delts", radius: 35, color: "#e5ecf1" }
+        ];
+
+        let links = [
+            { source: "core", target: "chest" }, { source: "core", target: "back" },
+            { source: "core", target: "legs" }, { source: "core", target: "shoulders" }
+        ];
+
+        const simulation = d3.forceSimulation(nodes)
+            .force("link", d3.forceLink(links).id(d => d.id).distance(220).strength(0.6))
+            .force("charge", d3.forceManyBody().strength(d => d.type === "overflow" ? -15 : -400))
+            .force("collide", d3.forceCollide().radius(d => d.radius + (d.type === "overflow" ? 2 : 15)).iterations(3))
+            .force("center", d3.forceCenter(width / 2, height / 2 - 50).strength(0.08))
+            .force("clusterOverflow", alpha => {
+                let core = nodes.find(n => n.id === "core");
+                if (!core) return;
+                nodes.forEach(d => {
+                    if (d.type === "overflow") {
+                        let dx = d.x - core.x, dy = d.y - core.y;
+                        let dist = Math.sqrt(dx*dx + dy*dy);
+                        let targetDist = 75; 
+                        if (dist > 0) {
+                            let f = (dist - targetDist) * alpha * 0.5;
+                            d.vx -= (dx / dist) * f; d.vy -= (dy / dist) * f;
+                            let orbitSpeed = 1.2; 
+                            d.vx += (-dy / dist) * orbitSpeed; d.vy += (dx / dist) * orbitSpeed;
+                        }
+                    }
+                });
+            });
+
+        simulation.alphaTarget(0.05);
+
+        let linkElements = g.append("g").selectAll(".link").data(links).enter().append("line").attr("stroke", "rgba(0,0,0,0.1)").attr("stroke-width", 2).attr("stroke-dasharray", "4,6");
+        let nodeGroup = g.append("g").selectAll(".node-group");
+
+        const pie = d3.pie().value(d => d.value).sort(null);
+        const arc = d3.arc().innerRadius(18).outerRadius(55); 
+
+        function updateNodes() {
+            nodeGroup = nodeGroup.data(nodes, d => d.id);
+            nodeGroup.exit().transition().duration(300).attr("r", 0).remove(); 
+            
+            let enter = nodeGroup.enter().append("g").attr("class", "node-group").call(d3.drag().on("start", dragstarted).on("drag", dragged).on("end", dragended));
+                
+            enter.each(function(d) {
+                let el = d3.select(this);
+                if (d.type === "core") {
+                    el.append("g").attr("class", "pie-container").style("filter", "url(#drop-shadow)");
+                    el.append("circle").attr("r", 15).attr("fill", "#fff"); 
+                    el.append("text").attr("dy", 4).attr("text-anchor", "middle").attr("fill", "#1d1d1f").attr("font-weight", "700").attr("font-size", "10px").attr("font-family", "'Space Grotesk', sans-serif").text("CORE");
+                } else if (d.type === "muscle") {
+                    el.append("circle").attr("class", "muscle-circle").attr("r", d.radius).attr("fill", d.color).style("filter", "url(#drop-shadow)").attr("stroke", "#ffffff").attr("stroke-width", 3);
+                    el.append("text").attr("dy", 5).attr("text-anchor", "middle").attr("fill", "#1d1d1f").attr("font-weight", "600").attr("font-size", "13px").attr("font-family", "'Space Grotesk', sans-serif").text(d.name);
+                } else if (d.type === "overflow") {
+                    el.append("circle").attr("r", d.radius).attr("fill", d.color).style("filter", "url(#drop-shadow)").attr("stroke", "#ffffff").attr("stroke-width", 2);
+                }
+            });
+            nodeGroup = enter.merge(nodeGroup);
+            simulation.nodes(nodes);
+            simulation.alpha(0.3).restart();
+            drawPie(); 
+        }
+
+        function drawPie() {
+            let base = 0.5; 
+            let pData = [
+                { id: "grain", value: state.clickCount.grain || base, color: "#FFD166" },
+                { id: "meat",  value: state.clickCount.meat || base,  color: "#EF476F" },
+                { id: "veg",   value: state.clickCount.veg || base,   color: "#06D6A0" },
+                { id: "oil",   value: state.clickCount.oil || base,   color: "#F78C6B" },
+                { id: "salt",  value: state.clickCount.salt || base,  color: "#118AB2" }
+            ];
+            let container = d3.select(".pie-container");
+            if(container.empty()) return;
+
+            let paths = container.selectAll("path").data(pie(pData), d => d.data.id);
+            paths.enter().append("path").attr("fill", d => d.data.color).attr("stroke", "#fff").attr("stroke-width", 1.5)
+                .merge(paths).transition().duration(500)
+                .attrTween("d", function(d) {
+                    this._current = this._current || d; let interpolate = d3.interpolate(this._current, d); this._current = interpolate(1);
+                    return function(t) { return arc(interpolate(t)); };
+                });
+        }
+
+        simulation.on("tick", () => {
+            const time = Date.now();
+            linkElements.attr("x1", d => d.source.x).attr("y1", d => d.source.y).attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+            nodeGroup.attr("transform", d => `translate(${d.x},${d.y})`);
+
+            nodeGroup.each(function(d) {
+                let el = d3.select(this);
+                let pulse = Math.sin(time / (d.type === "core" ? 400 : 250) + d.index) * (d.type === "core" ? 4 : 2);
+                if (d.type === "core") el.select(".pie-container").attr("transform", `scale(${(55 + pulse) / 55})`);
+                else if (d.type === "muscle") el.select(".muscle-circle").attr("r", Math.max(10, d.radius + pulse));
+            });
+        });
+
+        function updateUI() {
+            d3.select("#energy-val").text(Math.round(state.energy));
+            
+            let iText = `Grain: ${state.dailyIntake.grain}g | Meat: ${state.dailyIntake.meat}g | Veg: ${state.dailyIntake.veg}g | Oil: ${state.dailyIntake.oil}g | Salt: ${state.dailyIntake.salt}g`;
+            d3.select("#daily-intake-text").text(iText);
+
+            let fHtml = "";
+            for (let [key, val] of Object.entries(state.fatigue)) {
+                let color = val > 70 ? "#EF476F" : "#1d1d1f";
+                fHtml += `<div style="display:flex; justify-content:space-between; color:${color}"><span>${getMuscleName(key)}</span> <span>${Math.round(val)}%</span></div>`;
+            }
+            d3.select("#fatigue-monitor").html(fHtml);
+
+            let entries = Object.entries(state.fatigue).sort((a, b) => b[1] - a[1]);
+            let overflowCount = nodes.filter(n => n.type === "overflow").length;
+            const BMR = 350; let surplusEnergy = state.energy - BMR;
+            
+            if (overflowCount > 0) {
+                d3.select("#status-text").html(`<span class='highlight-text' style='color:#F78C6B'>⚠️ Orbiting Particles Detected (${overflowCount}): Excess energy requires physical output.</span>`);
+            } else if (entries[0][1] >= 80) {
+                d3.select("#status-text").html(`<span class='highlight-text'>🚨 ${getMuscleName(entries[0][0])} Critical Fatigue!</span> Rest required to prevent tissue damage.`);
+            } else if (state.energy < 150) {
+                d3.select("#status-text").html("<span class='highlight-text' style='color:#118AB2'>⚠️ Low Energy State: High-intensity training may lead to muscle catabolism.</span>");
+            } else {
+                if (surplusEnergy > 0) {
+                    let recommendedExerciseMins = Math.ceil(surplusEnergy / 5);
+                    d3.select("#status-text").html(`Energy Surplus: Exceeds BMR by ${surplusEnergy} kcal. Recommend <strong style='color:#118AB2'>${recommendedExerciseMins} mins</strong> of ${getMuscleName(entries[entries.length-1][0])} training.`);
+                } else {
+                    d3.select("#status-text").html(`System balanced. Current energy is within daily BMR (${BMR} kcal).`);
+                }
+            }
+            drawHistoryChart();
+            saveSystem(); // 【新增】：每次数据有变动引发UI刷新时，自动触发存档
+        }
+        function drawHistoryChart() {
+            let container = d3.select("#history-chart-container");
+            if (container.empty()) {
+                container = d3.select("#log-panel").insert("div", ":first-child")
+                    .attr("id", "history-chart-container")
+                    .style("width", "100%")
+                    .style("height", "80px")
+                    .style("margin-bottom", "15px")
+                    .style("padding-bottom", "15px")
+                    .style("border-bottom", "1px solid rgba(0,0,0,0.05)")
+                    .style("display", "flex")
+                    .style("justify-content", "space-evenly")
+                    .style("align-items", "center");
+            }
+            container.selectAll("*").remove(); 
+
+            if (state.history.length === 0) {
+                container.html("<div style='text-align:center; color:var(--text-muted); width:100%; font-size:0.85rem; font-family: Inter;'>No historical data. Click [End Day] to generate chart.</div>");
+                return;
+            }
+
+            let pie = d3.pie().value(d => d.value).sort(null);
+            let arc = d3.arc().innerRadius(12).outerRadius(24);
+            let colors = { grain: "#FFD166", meat: "#EF476F", veg: "#06D6A0", oil: "#F78C6B", salt: "#118AB2" };
+
+            state.history.forEach(dayData => {
+                let dayWrapper = container.append("div").style("display", "flex").style("flex-direction", "column").style("align-items", "center").style("gap", "6px");
+                let svg = dayWrapper.append("svg").attr("width", 50).attr("height", 50);
+                let g = svg.append("g").attr("transform", "translate(25,25)");
+                
+                let totalClicks = dayData.clicks.grain + dayData.clicks.meat + dayData.clicks.veg + dayData.clicks.oil + dayData.clicks.salt;
+                let pData = totalClicks === 0 
+                    ? Object.keys(colors).map(k => ({id: k, value: 1, color: "#e5ecf1"})) 
+                    : Object.keys(colors).map(k => ({id: k, value: dayData.clicks[k] || 0.5, color: colors[k]})); 
+
+                g.selectAll("path").data(pie(pData)).enter().append("path")
+                    .attr("d", arc)
+                    .attr("fill", d => d.data.color)
+                    .attr("stroke", "#ffffff")
+                    .attr("stroke-width", 1.5);
+
+                dayWrapper.append("div").style("font-size", "0.75rem").style("font-family", "'Space Grotesk', sans-serif").style("font-weight", "600").style("color", "var(--text-main)").text(`D${dayData.day}`);
+            });
+        }
+        function getMuscleName(id) { const map = { chest: "Chest", back: "Back", legs: "Legs", shoulders: "Deltoids" }; return map[id]; }
+
+        d3.selectAll("#food-panel button.action-btn").on("click", function() {
+            let btn = d3.select(this); let type = btn.attr("data-type");
+            let grams = parseInt(btn.attr("data-grams")); let gainedEnergy = parseInt(btn.attr("data-val")); let color = btn.attr("data-color");
+            
+            state.energy += gainedEnergy; state.dailyIntake[type] += grams; state.clickCount[type] += 1; 
+            updateUI();
+
+            let particle = g.append("circle").attr("cx", 350).attr("cy", height / 2 - 50).attr("r", 10).attr("fill", color).style("filter", "url(#drop-shadow)");
+            let coreNode = nodes.find(n => n.id === "core");
+            
+            particle.transition().duration(600).ease(d3.easeCubicIn).attr("cx", coreNode.x).attr("cy", coreNode.y)
+                .on("end", function() {
+                    d3.select(this).remove(); drawPie(); 
+                    if (state.clickCount[type] > 5) {
+                        nodes.push({ id: `overflow_${Date.now()}`, type: "overflow", color: color, radius: 8, energyVal: gainedEnergy, x: coreNode.x + (Math.random()-0.5)*100, y: coreNode.y + (Math.random()-0.5)*100 });
+                        updateNodes(); 
+                    }
+                    updateUI();
+                });
+        });
+
+        d3.selectAll(".btn-train").on("click", function() {
+            let targetId = d3.select(this).attr("data-target");
+            let consume = 75; let fatigueGain = 20; 
+            let synergyMap = {
+                "chest": { secondary: "shoulders", gain: 10, warning: "Deltoid compensation detected" },
+                "back": { secondary: "shoulders", gain: 5, warning: "Rear deltoid involvement" },
+                "shoulders": { secondary: "chest", gain: 5, warning: "Upper chest engagement" },
+                "legs": { secondary: null, gain: 0, warning: "" } 
+            };
+
+            if (state.energy < consume) { alert(`Insufficient Core Energy for 15 min output!`); return; }
+
+            let synergy = synergyMap[targetId];
+            if (synergy.secondary && state.fatigue[synergy.secondary] >= 80) {
+                alert(`⚠️ Kinematic Warning: ${synergy.warning}. Your ${getMuscleName(synergy.secondary)} is critically fatigued. System locked.`); return;
+            }
+
+            state.energy -= consume;
+            state.fatigue[targetId] = Math.min(100, state.fatigue[targetId] + fatigueGain);
+            state.dailyWorkout[targetId] += 15; 
+            
+            if (synergy.secondary) {
+                state.fatigue[synergy.secondary] = Math.min(100, state.fatigue[synergy.secondary] + synergy.gain);
+                let secNode = nodeGroup.filter(d => d.id === synergy.secondary);
+                let secData = nodes.find(n => n.id === synergy.secondary);
+                secData.radius = 35 + (state.fatigue[synergy.secondary] * 0.25);
+                secNode.select(".muscle-circle").transition().duration(400).attr("fill", d3.interpolate("#e5ecf1", "#EF476F")(state.fatigue[synergy.secondary] / 100));
+            }
+
+            let targetNode = nodeGroup.filter(d => d.id === targetId);
+            let targetData = nodes.find(n => n.id === targetId);
+            targetData.radius = 35 + (state.fatigue[targetId] * 0.25); 
+            let colorInterp = d3.interpolate("#e5ecf1", "#EF476F"); 
+            targetNode.select(".muscle-circle").transition().duration(400).attr("fill", colorInterp(state.fatigue[targetId] / 100));
+            
+            let overflowNodes = nodes.filter(n => n.type === "overflow");
+            if (overflowNodes.length > 0) {
+                let energyToCover = consume; let ballsToConsume = [];
+                for (let i = 0; i < overflowNodes.length; i++) {
+                    if (energyToCover <= 0) break;
+                    ballsToConsume.push(overflowNodes[i]); energyToCover -= (overflowNodes[i].energyVal || 30); 
+                }
+                nodes = nodes.filter(n => !ballsToConsume.includes(n)); updateNodes();
+                ballsToConsume.forEach((n, i) => {
+                    let p = g.append("circle").attr("cx", n.x).attr("cy", n.y).attr("r", 8).attr("fill", n.color).style("filter", "url(#drop-shadow)");
+                    p.transition().delay(i * 100).duration(600).ease(d3.easeQuadIn).attr("cx", targetData.x).attr("cy", targetData.y)
+                        .on("end", function() { d3.select(this).remove(); updateUI(); });
+                });
+            } else updateUI();
+        });
+
+        d3.select("#btn-next-day").on("click", function() {
+            state.monthlyLog.push({ 
+                day: state.day, 
+                diet: { ...state.dailyIntake }, 
+                workout: { ...state.dailyWorkout },
+                clicks: { ...state.clickCount } 
+            });
+            state.history.push({ 
+                day: state.day, 
+                diet: { ...state.dailyIntake },
+                clicks: { ...state.clickCount } 
+            });
+            if (state.history.length > 7) state.history.shift();
+
+            let dietRec = "";
+            let dietColor = "#06D6A0"; 
+            
+            if (state.dailyIntake.meat < 50) {
+                dietRec = "⚠️ 严重缺乏蛋白质！肌肉流失风险极高，明日必须大量补充【肉类】。"; dietColor = "#EF476F";
+            } else if (state.dailyIntake.veg < 30) {
+                dietRec = "⚠️ 严重缺乏维生素与膳食纤维！明日必须大量补充【蔬菜】。"; dietColor = "#EF476F";
+            } else if (state.dailyIntake.meat < 100) {
+                dietRec = "蛋白质摄入偏低，影响肌肉修复，明日建议增加【肉类】比例。"; dietColor = "#F78C6B";
+            } else if (state.dailyIntake.veg < 80) {
+                dietRec = "蔬菜摄入不足，明日建议增加【蔬菜】补充微量元素。"; dietColor = "#FFD166";
+            } else {
+                dietRec = "✅ 饮食结构均衡，各项营养素达标，请保持。";
+            }
+
+            let entries = Object.entries(state.fatigue).sort((a, b) => b[1] - a[1]);
+            let trainRec = entries[0][1] > 60 
+                ? `【${getMuscleName(entries[0][0])}】极度疲劳，严禁训练！推荐以【${getMuscleName(entries[entries.length-1][0])}】为主。` 
+                : `机能恢复良好，可优先刺激【${getMuscleName(entries[entries.length-1][0])}】。`;
+
+            d3.select("#recommendation-text").html(`<span style="color:${dietColor}; font-weight:600;">${dietRec}</span> <br> <span style="color:#118AB2; font-weight:600;">${trainRec}</span>`);
+
+            let overflowNodes = nodes.filter(n => n.type === "overflow");
+            let fatEnergy = overflowNodes.reduce((sum, n) => sum + (n.energyVal || 30), 0);
+            let coreEnergy = Math.max(0, state.energy - fatEnergy); 
+            let bmrBurn = Math.min(coreEnergy, 350); 
+            coreEnergy -= bmrBurn;
+            state.energy = coreEnergy + fatEnergy; 
+
+            state.day++;
+            d3.select("#day-label").text(`Day ${state.day}`);
+            
+            state.dailyIntake = { grain: 0, meat: 0, veg: 0, oil: 0, salt: 0 }; 
+            state.clickCount = { grain: 0, meat: 0, veg: 0, oil: 0, salt: 0 }; 
+            state.dailyWorkout = { chest: 0, back: 0, legs: 0, shoulders: 0 };
+            
+            drawPie(); 
+
+            for (let id in state.fatigue) {
+                state.fatigue[id] = Math.max(0, state.fatigue[id] - 40); 
+                let nodeData = nodes.find(n => n.id === id);
+                nodeData.radius = 35 + (state.fatigue[id] * 0.25);
+                nodeGroup.filter(d => d.id === id).select(".muscle-circle")
+                    .transition().duration(1500)
+                    .attr("fill", d3.interpolate("#e5ecf1", "#EF476F")(state.fatigue[id] / 100));
+            }
+            
+            let dailyTotal = 0;
+            let mainWorkout = null;
+            for(let m in state.dailyWorkout) {
+                if(state.dailyWorkout[m] > 0) {
+                    dailyTotal += state.dailyWorkout[m];
+                    mainWorkout = m; 
+                }
+            }
+
+            if (dailyTotal > 0) {
+                let prevTotal = 0;
+                state.monthlyLog.forEach(d => { for(let m in d.workout) prevTotal += d.workout[m]; });
+                state.growthLog.push({
+                    height: prevTotal / state.totalGoal,
+                    color: nodes.find(n => n.id === mainWorkout).color
+                });
+            }
+
+            simulation.alpha(0.5).restart();
+            updateUI(); 
+            saveSystem();
+        });
+
+// ==========================================
+        // --- 核心升级：延迟浮现的巨大毛玻璃面板 (Growth) ---
+        // ==========================================
+// ==========================================
+        // --- 核心升级：延迟浮现的巨大毛玻璃面板 (Growth) ---
+        // ==========================================
+// ==========================================
+        // --- 核心升级：精致毛玻璃 UI 与宽幅折线图 (Growth) ---
+        // ==========================================
+        function renderGrowth() {
+            const container = d3.select("#view-growth");
+            container.selectAll("*").remove(); 
+
+            if (window.growthAnimFrame) cancelAnimationFrame(window.growthAnimFrame);
+
+            // 1. 数据准备 (20天趋势)
+            const last20Days = state.monthlyLog.slice(-20);
+            let chartData = [];
+            let lastValue = 0, restDays = 0;
+            for (let i = 0; i < 20; i++) {
+                let dayData = last20Days[i];
+                let dailyTotal = 0;
+                if (dayData) { for (let m in dayData.workout) dailyTotal += dayData.workout[m]; }
+                if (dailyTotal > 0) { lastValue = dailyTotal; restDays = 0; } 
+                else { restDays++; lastValue = (restDays === 1) ? lastValue * 0.7 : Math.max(0, lastValue * 0.5 - 20); }
+                chartData.push(Math.round(lastValue));
+            }
+
+            // 2. 位置计算
+            let totalWorked = 0;
+            state.monthlyLog.forEach(d => { for(let m in d.workout) totalWorked += d.workout[m]; });
+            for(let m in state.dailyWorkout) totalWorked += state.dailyWorkout[m];
+
+            const progress = Math.min(1, totalWorked / state.totalGoal);
+            const startX = 680, startY = 461.1;
+            const peakX = 320, peakY = 261.1;
+            const flagX = startX + (peakX - startX) * progress;
+            const flagY = startY + (peakY - startY) * progress;
+            const originX = (flagX / 800) * 100, originY = (flagY / 500) * 100;
+
+            // 3. 核心修改：仅放大图表画布区域，保持 UI 精致
+            const chartW = 320, chartH = 90; 
+            const maxVal = Math.max(...chartData, 10);
+            const chartPoints = chartData.map((d, i) => `${i * (chartW/19)},${chartH - (d/maxVal*chartH)}`).join(' ');
+
+            // 4. 注入混合 HTML
+            const cardHTML = `
+                <div class="growth-card" style="width: 100%; height: 100%; position: relative; overflow: hidden; background: var(--bg-gradient); border-radius: 40px; box-shadow: var(--shadow);">
+                    
+                    <div style="position:absolute; bottom:50px; left:50px; z-index:20; pointer-events:none;">
+                        <div class="log-label">Current Height</div>
+                        <div class="value-display" style="font-size:3.5rem; color: #45627D;">
+                            ${totalWorked} <span style="font-size:1rem; font-weight:400; color:var(--text-muted);">/ ${state.totalGoal} mins</span>
+                        </div>
+                    </div>
+
+                    <svg id="growth-scene" viewBox="0 0 800 500" preserveAspectRatio="xMidYMid slice" 
+                         style="width: 110%; height: 110%; position: absolute; top: -5%; left: -5%; 
+                                transform-origin: ${originX}% ${originY}%; transition: transform 1.2s cubic-bezier(0.65, 0, 0.35, 1);">
+                        
+                        <defs>
+                            <linearGradient id="tyndall-grad" x1="0%" y1="0%" x2="50%" y2="100%">
+                                <stop offset="0%" stop-color="#FFFFFF" stop-opacity="1" />
+                                <stop offset="60%" stop-color="#FFFFFF" stop-opacity="0.3" />
+                                <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0" />
+                            </linearGradient>
+                        </defs>
+
+                        <g class="parallax-layer" data-speed="0.005">
+                            <path d="M100 120 Q115 105 140 120 Q165 105 180 120" fill="none" stroke="#B5C4D0" stroke-width="1.5" stroke-linecap="round"/>
+                            <path d="M600 150 Q615 135 640 150 Q665 135 680 150" fill="none" stroke="#B5C4D0" stroke-width="1.5" stroke-linecap="round"/>
+                            <path d="M250 80 Q265 65 290 80 Q315 65 330 80" fill="none" stroke="#B5C4D0" stroke-width="1.5" stroke-linecap="round"/>
+                        </g>
+
+                        <g class="parallax-layer light-beams" data-speed="0.002">
+                            <polygon points="100,0 250,0 450,500 250,500" fill="url(#tyndall-grad)" opacity="0.9" />
+                            <polygon points="350,0 480,0 750,500 600,500" fill="url(#tyndall-grad)" opacity="0.75" />
+                        </g>
+
+                        <g class="parallax-layer" data-speed="0.015"><polygon points="-100,500 150,280 400,500" fill="#C8D5DF" /><polygon points="300,500 600,220 900,500" fill="#C8D5DF" /></g>
+                        <g class="parallax-layer" data-speed="0.03"><polygon points="-50,500 250,320 500,500" fill="#98ADBE" /><polygon points="450,500 780,310 950,500" fill="#98ADBE" /></g>
+
+                        <g class="parallax-layer" data-speed="0.06">
+                            <polygon points="-50,500 300,250 380,500" fill="#6D8BA6" />
+                            <polygon points="300,250 750,500 380,500" fill="#45627D" />
+                            
+                            ${state.growthLog.map(f => `<circle cx="${startX + (peakX-startX)*f.height}" cy="${startY + (peakY-startY)*f.height}" r="3" fill="${f.color}" />`).join('')}
+                            
+                            <g id="growth-flag" style="cursor: pointer;">
+                                <line x1="${flagX}" y1="${flagY}" x2="${flagX}" y2="${flagY-50}" stroke="#C26D52" stroke-width="2.5" stroke-linecap="round"/>
+                                <polygon points="${flagX},${flagY-50} ${flagX+30},${flagY-38} ${flagX},${flagY-25}" fill="#C26D52" />
+                            </g>
+                        </g>
+                    </svg>
+
+                    <div id="growth-hud" style="
+                        position: absolute; 
+                        left: ${originX}%; 
+                        top: ${originY}%; 
+                        transform: translate(-50%, -115%); 
+                        background: var(--glass-bg); 
+                        backdrop-filter: blur(24px); 
+                        -webkit-backdrop-filter: blur(24px); 
+                        border: 1px solid var(--glass-border); 
+                        border-radius: 20px; 
+                        padding: 24px; 
+                        box-shadow: var(--shadow); 
+                        z-index: 50; 
+                        opacity: 0; 
+                        pointer-events: none; 
+                        transition: opacity 0.6s ease;
+                        display: flex; flex-direction: column; gap: 12px;
+                    ">
+                        <div class="log-label" style="color: #45627D; font-size: 0.8rem; letter-spacing: 1.5px; display: flex; justify-content: space-between; align-items: baseline;">
+                            <span>Metabolic Telemetry</span>
+                            <span style="color: var(--text-muted); font-size: 0.7rem;">20 DAYS</span>
+                        </div>
+                        <svg width="${chartW}" height="${chartH + 20}" style="overflow: visible;">
+                            <g transform="translate(0, 5)">
+                                <line x1="0" y1="${chartH}" x2="${chartW}" y2="${chartH}" stroke="rgba(69,98,125,0.2)" stroke-width="1"/>
+                                <line x1="0" y1="0" x2="${chartW}" y2="0" stroke="rgba(69,98,125,0.1)" stroke-dasharray="2,2"/>
+                                
+                                <text x="-8" y="${chartH + 3}" fill="#98ADBE" font-family="Space Grotesk" font-size="8" text-anchor="end">0</text>
+                                <text x="-8" y="3" fill="#98ADBE" font-family="Space Grotesk" font-size="8" text-anchor="end">${maxVal}</text>
+                                
+                                <text x="0" y="${chartH + 18}" fill="#98ADBE" font-family="Space Grotesk" font-size="8">D-19</text>
+                                <text x="${chartW}" y="${chartH + 18}" fill="#98ADBE" font-family="Space Grotesk" font-size="8" text-anchor="end">TODAY</text>
+                                
+                                <polyline points="${chartPoints}" fill="none" stroke="#118AB2" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" />
+                                
+                                ${chartData.map((d, i) => i%4===0 ? `<circle cx="${i*(chartW/19)}" cy="${chartH-(d/maxVal*chartH)}" r="2" fill="#ffffff" stroke="#118AB2" stroke-width="1"/>` : '').join('')}
+                            </g>
+                        </svg>
+                    </div>
+                </div>
+            `;
+            
+            container.html(cardHTML);
+
+            // 5. 动画与交互逻辑
+            const scene = document.getElementById('growth-scene');
+            const flag = document.getElementById('growth-flag');
+            const hud = document.getElementById('growth-hud');
+            const layers = document.querySelectorAll('.parallax-layer');
+            const viewGrowth = document.getElementById('view-growth');
+            let isZoomed = false;
+            let hudTimeout; 
+
+            let targetX = 0, targetY = 0, currentX = 0, currentY = 0;
+            viewGrowth.onmousemove = (e) => {
+                const rect = viewGrowth.getBoundingClientRect();
+                targetX = (rect.left + rect.width / 2) - e.clientX;
+                targetY = (rect.top + rect.height / 2) - e.clientY;
+            };
+
+            function animateParallax() {
+                if (!document.getElementById('growth-scene')) return;
+                currentX += (targetX - currentX) * 0.08;
+                currentY += (targetY - currentY) * 0.08;
+                
+                layers.forEach(layer => {
+                    layer.style.transition = 'none'; 
+                    const speed = parseFloat(layer.getAttribute('data-speed'));
+                    const currentSpeed = isZoomed ? speed * 0.15 : speed;
+                    layer.style.transform = `translate(${currentX * currentSpeed}px, ${currentY * currentSpeed}px)`;
+                });
+
+                const fgSpeed = 0.06;
+                const hudSpeed = isZoomed ? fgSpeed * 0.15 : fgSpeed;
+                hud.style.transform = `translate(calc(-50% + ${currentX * hudSpeed}px), calc(-115% + ${currentY * hudSpeed}px))`;
+
+                window.growthAnimFrame = requestAnimationFrame(animateParallax);
+            }
+            animateParallax();
+
+            // 镜头推进与面板浮现的时序控制
+            flag.onclick = (e) => {
+                e.stopPropagation();
+                if (hudTimeout) clearTimeout(hudTimeout); 
+
+                if (!isZoomed) {
+                    isZoomed = true;
+                    scene.style.transform = 'scale(1.4)'; 
+                    
+                    // 动画时序控制：先等镜头拉近，折线图面板再优雅浮现
+                    hudTimeout = setTimeout(() => {
+                        if (isZoomed) { 
+                            hud.style.opacity = "1";
+                            hud.style.pointerEvents = "auto";
+                        }
+                    }, 1000);
+
+                } else {
+                    isZoomed = false;
+                    scene.style.transform = 'scale(1)';
+                    hud.style.opacity = "0";
+                    hud.style.pointerEvents = "none";
+                }
+            };
+
+            viewGrowth.querySelector('.growth-card').onclick = () => {
+                if (isZoomed) {
+                    if (hudTimeout) clearTimeout(hudTimeout);
+                    isZoomed = false;
+                    scene.style.transform = 'scale(1)';
+                    hud.style.opacity = "0";
+                    hud.style.pointerEvents = "none";
+                }
+            };
+        }
+        
+        function renderSummary() {
+            let totBurn = 0;
+            let totMuscle = { chest: 0, back: 0, legs: 0, shoulders: 0 };
+            
+            let allDays = [...state.monthlyLog, { 
+                day: state.day, 
+                diet: state.dailyIntake, 
+                workout: state.dailyWorkout,
+                clicks: state.clickCount, 
+                isToday: true 
+            }];
+
+            allDays.forEach(log => {
+                for(let m in log.workout) {
+                    totMuscle[m] += log.workout[m];
+                    totBurn += log.workout[m] * 5; 
+                }
+            });
+
+            d3.select("#tot-burn").text(totBurn);
+            d3.select("#tot-chest").text(totMuscle.chest);
+            d3.select("#tot-back").text(totMuscle.back);
+            d3.select("#tot-legs").text(totMuscle.legs);
+            d3.select("#tot-shoulders").text(totMuscle.shoulders);
+
+            let grid = d3.select("#calendar-grid");
+            grid.selectAll("*").remove(); 
+
+            let cards = grid.selectAll(".day-card").data(allDays).enter()
+                .append("div").attr("class", "day-card")
+                .classed("today", d => d.isToday);
+
+            cards.append("div").attr("class", "day-num").text(d => `Day ${d.day}`);
+
+            let dietBar = cards.append("div").attr("class", "mini-diet-bar");
+            dietBar.each(function(d) {
+                let totalClicks = d.clicks.grain + d.clicks.meat + d.clicks.veg + d.clicks.oil + d.clicks.salt;
+                if(totalClicks === 0) return; 
+                
+                let el = d3.select(this);
+                let metrics = [
+                    {val: d.clicks.grain || 0.5, color: "#FFD166"}, 
+                    {val: d.clicks.meat || 0.5, color: "#EF476F"},
+                    {val: d.clicks.veg || 0.5, color: "#06D6A0"}, 
+                    {val: d.clicks.oil || 0.5, color: "#F78C6B"}, 
+                    {val: d.clicks.salt || 0.5, color: "#118AB2"}
+                ];
+                let visualTotal = metrics.reduce((sum, m) => sum + m.val, 0);
+                metrics.forEach(m => {
+                    if(m.val > 0) el.append("div").attr("class", "diet-segment").style("width", `${(m.val/visualTotal)*100}%`).style("background", m.color);
+                });
+            });
+
+            let tagsContainer = cards.append("div").attr("class", "mini-workout-tags");
+            tagsContainer.each(function(d) {
+                let el = d3.select(this);
+                let colors = { chest: "#1d1d1f", back: "#86868b", legs: "#06D6A0", shoulders: "#F78C6B" };
+                for(let m in d.workout) {
+                    if (d.workout[m] > 0) {
+                        el.append("div").attr("class", "w-tag").style("background", colors[m]).text(`${getMuscleName(m)} ${d.workout[m]}m`);
+                    }
+                }
+            });
+        }
+
+        function dragstarted(event, d) { if (!event.active) simulation.alphaTarget(0.05).restart(); d.fx = d.x; d.fy = d.y; }
+        function dragged(event, d) { d.fx = event.x; d.fy = event.y; }
+        function dragended(event, d) { if (!event.active) simulation.alphaTarget(0.05); d.fx = null; d.fy = null; }
+    // 【修改初始化执行顺序】
+        loadSystem(); // 1. 优先从本地/文件读取数据覆盖默认 state
+        
+        // 2. 刷新顶部日历标签
+        d3.select("#day-label").text(`Day ${state.day}`);
+
+        updateNodes(); 
+        updateUI(); 
+
+        function toggleTutorial() {
+            const overlay = document.getElementById('tutorial-overlay');
+            if (overlay.classList.contains('active')) {
+                overlay.style.opacity = 0;
+                setTimeout(() => { 
+                    overlay.classList.remove('active'); 
+                    overlay.style.display = 'none'; 
+                }, 500); 
+            } else {
+                overlay.style.display = 'block';
+                void overlay.offsetWidth;
+                overlay.classList.add('active');
+                overlay.style.opacity = 1;
+            }
+        }
+
+        window.onload = () => {
+            setTimeout(toggleTutorial, 800);
+        };
+
+        // ==========================================
+        // --- 新增：记忆系统 (Local Storage & File I/O) ---
+        // ==========================================
+
+        function saveSystem() {
+            const overflowNodes = nodes.filter(n => n.type === "overflow").map(n => ({
+                id: n.id,
+                type: n.type,
+                color: n.color,
+                radius: n.radius,
+                energyVal: n.energyVal
+            }));
+            
+            const saveData = {
+                state: state,
+                overflows: overflowNodes
+            };
+            
+            localStorage.setItem("metabolic_save", JSON.stringify(saveData));
+        }
+
+        function loadSystem() {
+            const savedStr = localStorage.getItem("metabolic_save");
+            if (savedStr) {
+                try {
+                    const savedData = JSON.parse(savedStr);
+                    state = { ...state, ...savedData.state }; 
+                    
+                    if (savedData.overflows && savedData.overflows.length > 0) {
+                        savedData.overflows.forEach(n => {
+                            n.x = width / 2 + (Math.random() - 0.5) * 100;
+                            n.y = height / 2 + (Math.random() - 0.5) * 100;
+                            nodes.push(n);
+                        });
+                    }
+                } catch(e) {
+                    console.error("Save file corrupted.", e);
+                }
+            }
+        }
+
+        function exportToFile() {
+            saveSystem(); // 导出前先强制同步最新状态
+            const dataStr = localStorage.getItem("metabolic_save");
+            const blob = new Blob([dataStr], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            // 文件名会自动带上当前的生存天数
+            a.download = `Metabolic_Day${state.day}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function importFromFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    JSON.parse(e.target.result); // 校验 JSON 格式是否正确
+                    localStorage.setItem("metabolic_save", e.target.result);
+                    alert("存档读取成功！系统将重载。");
+                    location.reload(); // 最干净的恢复方式是重载页面并走自动读取逻辑
+                } catch(err) {
+                    alert("存档文件损坏或格式错误！");
+                }
+            };
+            reader.readAsText(file);
+        }
+    </script>
+</body>
+</html>
